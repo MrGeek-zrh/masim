@@ -38,6 +38,8 @@ region_name, randomness, stride, probability
 - 访问模式参数：
   - `region_name`: 要访问的内存区域名称
   - `randomness`: 访问随机性（0表示顺序访问，1表示随机访问）
+    - randomness = 0：表示顺序访问（sequential access），即按照固定步长（stride）依次访问内存区域
+    - randomness = 1：表示随机访问（random access），即在内存区域内随机选择位置进行访问
   - `stride`: 访问步长（字节）
   - `probability`: 访问概率（1-100之间的整数）
 
