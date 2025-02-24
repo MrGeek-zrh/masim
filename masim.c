@@ -297,6 +297,17 @@ void exec_phase(struct phase *phase)
 	start = aclk_clock();
 	nr_access = 0;
 
+	if (!quiet) {
+		printf("DEBUG: Starting phase '%s' with %d patterns\n", 
+			phase->name, phase->nr_patterns);
+		for (i = 0; i < phase->nr_patterns; i++) {
+			pattern = &phase->patterns[i];
+			printf("DEBUG: Pattern %zu: region='%s', random=%d, stride=%zu, prob=%d\n",
+				i, pattern->mregion->name, pattern->random_access,
+				pattern->stride, pattern->probability);
+		}
+	}
+
 	if (hintmethod != NONE)
 		hint_access_pattern(phase);
 
@@ -311,19 +322,26 @@ void exec_phase(struct phase *phase)
 			pattern = &phase->patterns[i];
 			prob_start = pattern->prob_start;
 			prob_end = prob_start + pattern->probability;
-			if (randn >= prob_start && randn < prob_end)
+			if (randn >= prob_start && randn < prob_end) {
+				if (!quiet) {
+					printf("DEBUG: Selected pattern %zu: region='%s'\n",
+						i, pattern->mregion->name);
+				}
 				nr_access += do_access(pattern);
+			}
 		}
 
 		if (aclk_clock() - start > cpu_cycle_ms * phase->time_ms)
 			break;
 	}
-	if (!quiet)
+	if (!quiet) {
 		printf("%s:\t%'20llu accesses/msec, %llu msecs run\n",
 				phase->name,
 				nr_access /
 				((aclk_clock() - start) / cpu_cycle_ms),
 				((aclk_clock() - start) / cpu_cycle_ms));
+		printf("DEBUG: Completed phase '%s'\n", phase->name);
+	}
 }
 
 void exec_config(struct access_config *config)
