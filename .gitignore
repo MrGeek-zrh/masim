@@ -1,3 +1,7 @@
 masim
 masim.o
 misc.o
+
+.auto-coder/
+/actions/
+/output.txt
