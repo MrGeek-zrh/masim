@@ -127,11 +127,8 @@ static void do_rnd_ro(struct access *access, int batch)
 	int i;
 	char __attribute__((unused)) read_val;
 
-	for (i = 0; i < batch; i++) {
-		size_t offset = rndint() % region->sz;
-		printf("Reading from address: %p\n", (void*)(rr + offset));
-		read_val = ACCESS_ONCE(rr[offset]);
-	}
+	for (i = 0; i < batch; i++)
+		read_val = ACCESS_ONCE(rr[rndint() % region->sz]);
 }
 
 static void do_seq_ro(struct access *access, int batch)
@@ -146,7 +143,6 @@ static void do_seq_ro(struct access *access, int batch)
 		offset += access->stride;
 		if (offset >= region->sz)
 			offset = 0;
-		printf("Reading from address: %p\n", (void*)(rr + offset));
 		read_val = ACCESS_ONCE(rr[offset]);
 	}
 	access->last_offset = offset;
@@ -158,11 +154,8 @@ static void do_rnd_wo(struct access *access, int batch)
 	char *rr = region->region;
 	int i;
 
-	for (i = 0; i < batch; i++) {
-		size_t offset = rndint() % region->sz;
-		printf("Writing to address: %p\n", (void*)(rr + offset));
-		ACCESS_ONCE(rr[offset]) = 1;
-	}
+	for (i = 0; i < batch; i++)
+		ACCESS_ONCE(rr[rndint() % region->sz]) = 1;
 }
 
 static void do_seq_wo(struct access *access, int batch)
@@ -176,7 +169,6 @@ static void do_seq_wo(struct access *access, int batch)
 		offset += access->stride;
 		if (offset >= region->sz)
 			offset = 0;
-		printf("Writing to address: %p\n", (void*)(rr + offset));
 		ACCESS_ONCE(rr[offset]) = 1;
 	}
 	access->last_offset = offset;
@@ -190,8 +182,9 @@ static void do_rnd_rw(struct access *access, int batch)
 	char read_val;
 
 	for (i = 0; i < batch; i++) {
-		size_t rndoffset = rndint() % region->sz;
-		printf("Reading/Writing address: %p\n", (void*)(rr + rndoffset));
+		size_t rndoffset;
+
+		rndoffset = rndint() % region->sz;
 		read_val = ACCESS_ONCE(rr[rndoffset]);
 		ACCESS_ONCE(rr[rndoffset]) = read_val + 1;
 	}
@@ -209,7 +202,6 @@ static void do_seq_rw(struct access *access, int batch)
 		offset += access->stride;
 		if (offset >= region->sz)
 			offset = 0;
-		printf("Reading/Writing address: %p\n", (void*)(rr + offset));
 		read_val = ACCESS_ONCE(rr[offset]);
 		ACCESS_ONCE(rr[offset]) = read_val + 1;
 	}
