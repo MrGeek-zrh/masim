@@ -47,7 +47,15 @@ void pr_regions(struct mregion *regions, size_t nr_regions)
 	printf("memory regions\n");
 	for (i = 0; i < nr_regions; i++) {
 		region = &regions[i];
-		printf("\t%s: %zu bytes at %p\n", region->name, region->sz, region->region);
+		if (region->region == NULL) {
+			printf("\t%s: %zu bytes (pending allocation)\n",
+					region->name, region->sz);
+		} else {
+			char *end_addr = region->region + region->sz;
+			printf("\t%s: %zu bytes, Start: %p, End: %p\n",
+					region->name, region->sz,
+					region->region, (void *)end_addr);
+		}
 	}
 	printf("\n");
 }
@@ -356,7 +364,15 @@ void exec_config(struct access_config *config)
 			}
 		} else {
 			region->region = (char *)malloc(region->sz);
+			if (region->sz > 0 && region->region == NULL) {
+				err(1, "Failed to allocate %zu bytes for region %s",
+				    region->sz, region->name);
+			}
 		}
+	}
+
+	if (!quiet) {
+		pr_regions(config->regions, config->nr_regions);
 	}
 
 	for (i = 0; i < config->nr_phases; i++)
@@ -454,7 +470,11 @@ size_t parse_regions(char *str, struct mregion **regions_ptr)
 	nr_regions = astr_split(str, '\n', &lines);
 	if (nr_regions < 1)
 		err(1, "Not enough lines");
-	regions = (struct mregion *)malloc(sizeof(struct mregion) * nr_regions);
+	/* Use calloc to ensure region->region is NULL-initialized */
+	regions = (struct mregion *)calloc(nr_regions, sizeof(struct mregion));
+	if (regions == NULL && nr_regions > 0) {
+		err(1, "calloc failed for mregion structures");
+	}
 
 	for (i = 0; i < nr_regions; i++) {
 		r = &regions[i];
