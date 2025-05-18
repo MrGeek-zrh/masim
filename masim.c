@@ -98,6 +98,22 @@ struct access_config {
 #define RAND_ARR_SZ	1000
 size_t rndints[RAND_BATCH][RAND_ARR_SZ];
 
+// Helper function to update access statistics for a memory region
+static inline void update_access_stats(struct mregion *region, size_t current_offset) {
+    if (!region->has_been_accessed) {
+        region->accessed_min_offset = current_offset;
+        region->accessed_max_offset = current_offset;
+        region->has_been_accessed = 1;
+    } else {
+        if (current_offset < region->accessed_min_offset) {
+            region->accessed_min_offset = current_offset;
+        }
+        if (current_offset > region->accessed_max_offset) {
+            region->accessed_max_offset = current_offset;
+        }
+    }
+}
+
 inline static size_t rand64() {
 	return ((size_t)rand() << 32) | rand();
 }
@@ -134,9 +150,13 @@ static void do_rnd_ro(struct access *access, int batch)
 	char *rr = region->region;
 	int i;
 	char __attribute__((unused)) read_val;
+	size_t current_offset;
 
-	for (i = 0; i < batch; i++)
-		read_val = ACCESS_ONCE(rr[rndint() % region->sz]);
+	for (i = 0; i < batch; i++) {
+		current_offset = rndint() % region->sz;
+		read_val = ACCESS_ONCE(rr[current_offset]);
+		update_access_stats(region, current_offset);
+	}
 }
 
 static void do_seq_ro(struct access *access, int batch)
@@ -152,6 +172,7 @@ static void do_seq_ro(struct access *access, int batch)
 		if (offset >= region->sz)
 			offset = 0;
 		read_val = ACCESS_ONCE(rr[offset]);
+		update_access_stats(region, offset);
 	}
 	access->last_offset = offset;
 }
@@ -161,9 +182,13 @@ static void do_rnd_wo(struct access *access, int batch)
 	struct mregion *region = access->mregion;
 	char *rr = region->region;
 	int i;
+	size_t current_offset;
 
-	for (i = 0; i < batch; i++)
-		ACCESS_ONCE(rr[rndint() % region->sz]) = 1;
+	for (i = 0; i < batch; i++) {
+		current_offset = rndint() % region->sz;
+		ACCESS_ONCE(rr[current_offset]) = 1;
+		update_access_stats(region, current_offset);
+	}
 }
 
 static void do_seq_wo(struct access *access, int batch)
@@ -178,6 +203,7 @@ static void do_seq_wo(struct access *access, int batch)
 		if (offset >= region->sz)
 			offset = 0;
 		ACCESS_ONCE(rr[offset]) = 1;
+		update_access_stats(region, offset);
 	}
 	access->last_offset = offset;
 }
@@ -188,13 +214,13 @@ static void do_rnd_rw(struct access *access, int batch)
 	char *rr = region->region;
 	int i;
 	char read_val;
+	size_t current_offset;
 
 	for (i = 0; i < batch; i++) {
-		size_t rndoffset;
-
-		rndoffset = rndint() % region->sz;
-		read_val = ACCESS_ONCE(rr[rndoffset]);
-		ACCESS_ONCE(rr[rndoffset]) = read_val + 1;
+		current_offset = rndint() % region->sz;
+		read_val = ACCESS_ONCE(rr[current_offset]);
+		ACCESS_ONCE(rr[current_offset]) = read_val + 1;
+		update_access_stats(region, current_offset);
 	}
 }
 
@@ -212,6 +238,7 @@ static void do_seq_rw(struct access *access, int batch)
 			offset = 0;
 		read_val = ACCESS_ONCE(rr[offset]);
 		ACCESS_ONCE(rr[offset]) = read_val + 1;
+		update_access_stats(region, offset);
 	}
 	access->last_offset = offset;
 }
@@ -303,6 +330,15 @@ void exec_phase(struct phase *phase)
 	if (!cpu_cycle_ms)
 		cpu_cycle_ms = aclk_freq() / 1000;
 
+	// Reset access statistics for regions involved in this phase
+	for (size_t k = 0; k < phase->nr_patterns; k++) {
+		if (phase->patterns[k].mregion) {
+			phase->patterns[k].mregion->has_been_accessed = 0;
+			// accessed_min_offset and accessed_max_offset will be set by
+			// update_access_stats upon first access.
+		}
+	}
+
 	start = aclk_clock();
 	last_log_time = start;
 	nr_access = 0;
@@ -345,6 +381,55 @@ void exec_phase(struct phase *phase)
 				nr_access /
 				((aclk_clock() - start) / cpu_cycle_ms),
 				((aclk_clock() - start) / cpu_cycle_ms));
+
+	// Print accessed sub-regions for this phase
+	if (!quiet) {
+		printf("Accessed sub-regions for phase '%s':\n", phase->name);
+
+		// Collect unique accessed regions from this phase to print each once
+		struct mregion *unique_accessed_regions[phase->nr_patterns];
+		int count_unique = 0;
+
+		for (size_t k = 0; k < phase->nr_patterns; k++) {
+			struct mregion *current_region = phase->patterns[k].mregion;
+			if (current_region && current_region->has_been_accessed) {
+				int found = 0;
+				for (int l = 0; l < count_unique; l++) {
+					if (unique_accessed_regions[l] == current_region) {
+						found = 1;
+						break;
+					}
+				}
+				if (!found) {
+					if (count_unique < phase->nr_patterns) { // Ensure bounds
+						unique_accessed_regions[count_unique++] = current_region;
+					}
+				}
+			}
+		}
+
+		// Print stats for unique accessed regions
+		for (int k = 0; k < count_unique; k++) {
+			struct mregion *reg_to_print = unique_accessed_regions[k];
+			// Ensure region base pointer is valid before dereferencing for address calculation
+			if (reg_to_print->region) {
+				char *start_addr = reg_to_print->region + reg_to_print->accessed_min_offset;
+				char *end_addr = reg_to_print->region + reg_to_print->accessed_max_offset;
+				printf("\tRegion '%s': Sub-region Start: %p, End: %p (Offsets: %zu B - %zu B)\n",
+				       reg_to_print->name,
+				       (void *)start_addr,
+				       (void *)end_addr,
+				       reg_to_print->accessed_min_offset,
+				       reg_to_print->accessed_max_offset);
+			} else {
+				printf("\tRegion '%s': (region base pointer is NULL) Offsets: %zu B - %zu B\n",
+				       reg_to_print->name,
+				       reg_to_print->accessed_min_offset,
+				       reg_to_print->accessed_max_offset);
+			}
+		}
+		printf("\n"); // Add a newline for better separation between phase outputs
+	}
 }
 
 void exec_config(struct access_config *config)
