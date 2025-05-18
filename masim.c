@@ -47,7 +47,7 @@ void pr_regions(struct mregion *regions, size_t nr_regions)
 	printf("memory regions\n");
 	for (i = 0; i < nr_regions; i++) {
 		region = &regions[i];
-		printf("\t%s: %zu bytes\n", region->name, region->sz);
+		printf("\t%s: %zu bytes at %p\n", region->name, region->sz, region->region);
 	}
 	printf("\n");
 }
