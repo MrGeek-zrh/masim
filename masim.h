@@ -5,6 +5,9 @@ struct mregion {
 	char name[256];
 	size_t sz;
 	char *region;
+	int has_been_accessed; // Flag to check if the region has been accessed
+	size_t accessed_min_offset; // Minimum offset accessed in the region
+	size_t accessed_max_offset; // Maximum offset accessed in the region
 };
 
 enum rw_mode {
